@@ -303,7 +303,7 @@ local Events = require(game.ReplicatedStorage.Events)
 hookfunction(Events.ClientListen, function(v1,v2)
 	local status, result = pcall(function()
 		local output = repr(debug.getprotos(v2))
-		send(output,v1)
+		print(output)
 	end)
 
 	if not status then

@@ -23,9 +23,15 @@ end
 local Events = require(game.ReplicatedStorage.Events)
 
 hookfunction(Events.ClientListen, function(v1,v2)
-
-	local output = debug.getinfo(v2)
-	send(output,v1)
-
+	
+	local status, result = pcall(function()
+		local output = debug.getinfo(v2) or getinfo(v2)
+		send(output,v1)
+	end)
+	
+	if not status then
+		print(result)
+	end
+	
 	return Events.ClientListen
 end)

@@ -1,286 +1,315 @@
-local defaultSettings = {
-	pretty = false;
-	robloxFullName = false;
-	robloxProperFullName = true;
-	robloxClassName = true;
-	tabs = false;
-	semicolons = false;
-	spaces = 3;
-	sortKeys = true;
-}
+local key = "019b1cf2-8709-7f11-b285-fceb147e41b6"
+local options = { upvalueComment = false }
 
--- lua keywords
-local keywords = {["and"]=true, ["break"]=true, ["do"]=true, ["else"]=true,
-	["elseif"]=true, ["end"]=true, ["false"]=true, ["for"]=true, ["function"]=true,
-	["if"]=true, ["in"]=true, ["local"]=true, ["nil"]=true, ["not"]=true, ["or"]=true,
-	["repeat"]=true, ["return"]=true, ["then"]=true, ["true"]=true, ["until"]=true, ["while"]=true}
-
-local function isLuaIdentifier(str)
-	if type(str) ~= "string" then return false end
-	-- must be nonempty
-	if str:len() == 0 then return false end
-	-- can only contain a-z, A-Z, 0-9 and underscore
-	if str:find("[^%d%a_]") then return false end
-	-- cannot begin with digit
-	if tonumber(str:sub(1, 1)) then return false end
-	-- cannot be keyword
-	if keywords[str] then return false end
-	return true
-end
-
--- works like Instance:GetFullName(), but invalid Lua identifiers are fixed (e.g. workspace["The Dude"].Humanoid)
-local function properFullName(object, usePeriod)
-	if object == nil or object == game then return "" end
-
-	local s = object.Name
-	local usePeriod = true
-	if not isLuaIdentifier(s) then
-		s = ("[%q]"):format(s)
-		usePeriod = false
+local json = (function()
+	local json = { _version = "0.1.2" }
+	local encode
+	local escape_char_map = {[ "\\" ] = "\\",[ "\"" ] = "\"",[ "\b" ] = "b",[ "\f" ] = "f",[ "\n" ] = "n",[ "\r" ] = "r",[ "\t" ] = "t",}
+	local escape_char_map_inv = { [ "/" ] = "/" }
+	for k, v in pairs(escape_char_map) do
+		escape_char_map_inv[v] = k
 	end
-
-	if not object.Parent or object.Parent == game then
-		return s
-	else
-		return properFullName(object.Parent) .. (usePeriod and "." or "") .. s 
+	local function escape_char(c)
+		return "\\" .. (escape_char_map[c] or string.format("u%04x", c:byte()))
 	end
-end
-
-local depth = 0
-local shown
-local INDENT
-local reprSettings
-
-local function repr(value, reprSettings)
-	reprSettings = reprSettings or defaultSettings
-	INDENT = (" "):rep(reprSettings.spaces or defaultSettings.spaces)
-	if reprSettings.tabs then
-		INDENT = "\t"
+	local function encode_nil(val)
+		return "null"
 	end
-
-	local v = value --args[1]
-	local tabs = INDENT:rep(depth)
-
-	if depth == 0 then
-		shown = {}
+	local function encode_table(val, stack)
+		local res = {}
+		stack = stack or {}
+		if stack[val] then error("circular reference") end
+		stack[val] = true
+		if rawget(val, 1) ~= nil or next(val) == nil then
+			local n = 0
+			for k in pairs(val) do
+				if type(k) ~= "number" then
+					error("invalid table: mixed or invalid key types")
+				end
+				n = n + 1
+			end
+			if n ~= #val then
+				error("invalid table: sparse array")
+			end
+			for i, v in ipairs(val) do
+				table.insert(res, encode(v, stack))
+			end
+			stack[val] = nil
+			return "[" .. table.concat(res, ",") .. "]"
+		else
+			for k, v in pairs(val) do
+				if type(k) ~= "string" then
+					error("invalid table: mixed or invalid key types")
+				end
+				table.insert(res, encode(k, stack) .. ":" .. encode(v, stack))
+			end
+			stack[val] = nil
+			return "{" .. table.concat(res, ",") .. "}"
+		end
 	end
-	if type(v) == "string" then
-		return ("%q"):format(v)
-	elseif type(v) == "number" then
-		if v == math.huge then return "math.huge" end
-		if v == -math.huge then return "-math.huge" end
-		return tonumber(v)
-	elseif type(v) == "boolean" then
-		return tostring(v)
-	elseif type(v) == "nil" then
-		return "nil"
-	elseif type(v) == "table" and type(v.__tostring) == "function" then
-		return tostring(v.__tostring(v))
-	elseif type(v) == "table" and getmetatable(v) and type(getmetatable(v).__tostring) == "function" then
-		return tostring(getmetatable(v).__tostring(v))
-	elseif type(v) == "table" then
-		if shown[v] then return "{CYCLIC}" end
-		shown[v] = true
-		local str = "{" .. (reprSettings.pretty and ("\n" .. INDENT .. tabs) or "")
-		local isArray = true
-		for k, v in pairs(v) do
-			if type(k) ~= "number" then
-				isArray = false
+	local function encode_string(val)
+		return '"' .. val:gsub('[%z\1-\31\\"]', escape_char) .. '"'
+	end
+	local function encode_number(val)
+		if val ~= val or val <= -math.huge or val >= math.huge then
+			error("unexpected number value '" .. tostring(val) .. "'")
+		end
+		return string.format("%.14g", val)
+	end
+	local type_func_map = {
+		[ "nil"     ] = encode_nil,
+		[ "table"   ] = encode_table,
+		[ "string"  ] = encode_string,
+		[ "number"  ] = encode_number,
+		[ "boolean" ] = tostring,
+	}
+	encode = function(val, stack)
+		local t = type(val)
+		local f = type_func_map[t]
+		if f then
+			return f(val, stack)
+		end
+		error("unexpected type '" .. t .. "'")
+	end
+	function json.encode(val)
+		return ( encode(val) )
+	end
+	local parse
+	local function create_set(...)
+		local res = {}
+		for i = 1, select("#", ...) do
+			res[ select(i, ...) ] = true
+		end
+		return res
+	end
+	local space_chars   = create_set(" ", "\t", "\r", "\n")
+	local delim_chars   = create_set(" ", "\t", "\r", "\n", "]", "}", ",")
+	local escape_chars  = create_set("\\", "/", '"', "b", "f", "n", "r", "t", "u")
+	local literals      = create_set("true", "false", "null")
+	local literal_map = {
+		[ "true"  ] = true,
+		[ "false" ] = false,
+		[ "null"  ] = nil,
+	}
+	local function next_char(str, idx, set, negate)
+		for i = idx, #str do
+			if set[str:sub(i, i)] ~= negate then
+				return i
+			end
+		end
+		return #str + 1
+	end
+	local function decode_error(str, idx, msg)
+		local line_count = 1
+		local col_count = 1
+		for i = 1, idx - 1 do
+			col_count = col_count + 1
+			if str:sub(i, i) == "\n" then
+				line_count = line_count + 1
+				col_count = 1
+			end
+		end
+		error( string.format("%s at line %d col %d", msg, line_count, col_count) )
+	end
+	local function codepoint_to_utf8(n)
+		local f = math.floor
+		if n <= 0x7f then
+			return string.char(n)
+		elseif n <= 0x7ff then
+			return string.char(f(n / 64) + 192, n % 64 + 128)
+		elseif n <= 0xffff then
+			return string.char(f(n / 4096) + 224, f(n % 4096 / 64) + 128, n % 64 + 128)
+		elseif n <= 0x10ffff then
+			return string.char(f(n / 262144) + 240, f(n % 262144 / 4096) + 128,
+				f(n % 4096 / 64) + 128, n % 64 + 128)
+		end
+		error( string.format("invalid unicode codepoint '%x'", n) )
+	end
+	local function parse_unicode_escape(s)
+		local n1 = tonumber( s:sub(1, 4),  16 )
+		local n2 = tonumber( s:sub(7, 10), 16 )
+		if n2 then
+			return codepoint_to_utf8((n1 - 0xd800) * 0x400 + (n2 - 0xdc00) + 0x10000)
+		else
+			return codepoint_to_utf8(n1)
+		end
+	end
+	local function parse_string(str, i)
+		local res = ""
+		local j = i + 1
+		local k = j
+		while j <= #str do
+			local x = str:byte(j)
+			if x < 32 then
+				decode_error(str, j, "control character in string")
+			elseif x == 92 then -- `\`: Escape
+				res = res .. str:sub(k, j - 1)
+				j = j + 1
+				local c = str:sub(j, j)
+				if c == "u" then
+					local hex = str:match("^[dD][89aAbB]%x%x\\u%x%x%x%x", j + 1)
+						or str:match("^%x%x%x%x", j + 1)
+						or decode_error(str, j - 1, "invalid unicode escape in string")
+					res = res .. parse_unicode_escape(hex)
+					j = j + #hex
+				else
+					if not escape_chars[c] then
+						decode_error(str, j - 1, "invalid escape char '" .. c .. "' in string")
+					end
+					res = res .. escape_char_map_inv[c]
+				end
+				k = j + 1
+			elseif x == 34 then -- `"`: End of string
+				res = res .. str:sub(k, j - 1)
+				return res, j + 1
+			end
+			j = j + 1
+		end
+		decode_error(str, i, "expected closing quote for string")
+	end
+	local function parse_number(str, i)
+		local x = next_char(str, i, delim_chars)
+		local s = str:sub(i, x - 1)
+		local n = tonumber(s)
+		if not n then
+			decode_error(str, i, "invalid number '" .. s .. "'")
+		end
+		return n, x
+	end
+	local function parse_literal(str, i)
+		local x = next_char(str, i, delim_chars)
+		local word = str:sub(i, x - 1)
+		if not literals[word] then
+			decode_error(str, i, "invalid literal '" .. word .. "'")
+		end
+		return literal_map[word], x
+	end
+	local function parse_array(str, i)
+		local res = {}
+		local n = 1
+		i = i + 1
+		while 1 do
+			local x
+			i = next_char(str, i, space_chars, true)
+			if str:sub(i, i) == "]" then
+				i = i + 1
 				break
 			end
+			x, i = parse(str, i)
+			res[n] = x
+			n = n + 1
+			i = next_char(str, i, space_chars, true)
+			local chr = str:sub(i, i)
+			i = i + 1
+			if chr == "]" then break end
+			if chr ~= "," then decode_error(str, i, "expected ']' or ','") end
 		end
-		if isArray then
-			for i = 1, #v do
-				if i ~= 1 then
-					str = str .. (reprSettings.semicolons and ";" or ",") .. (reprSettings.pretty and ("\n" .. INDENT .. tabs) or " ")
-				end
-				depth = depth + 1
-				str = str .. repr(v[i], reprSettings)
-				depth = depth - 1
-			end
-		else
-			local keyOrder = {}
-			local keyValueStrings = {}
-			for k, v in pairs(v) do
-				depth = depth + 1
-				local kStr = isLuaIdentifier(k) and k or ("[" .. repr(k, reprSettings) .. "]")
-				local vStr = repr(v, reprSettings)
-				--[[str = str .. ("%s = %s"):format(
-					isLuaIdentifier(k) and k or ("[" .. repr(k, reprSettings) .. "]"),
-					repr(v, reprSettings)
-				)]]
-				table.insert(keyOrder, kStr)
-				keyValueStrings[kStr] = vStr
-				depth = depth - 1
-			end
-			if reprSettings.sortKeys then table.sort(keyOrder) end
-			local first = true
-			for _, kStr in pairs(keyOrder) do
-				if not first then
-					str = str .. (reprSettings.semicolons and ";" or ",") .. (reprSettings.pretty and ("\n" .. INDENT .. tabs) or " ")
-				end
-				str = str .. ("%s = %s"):format(kStr, keyValueStrings[kStr])
-				first = false
-			end
-		end
-		shown[v] = false
-		if reprSettings.pretty then
-			str = str .. "\n" .. tabs
-		end
-		str = str .. "}"
-		return str
-	elseif typeof then
-		-- Check Roblox types
-		if typeof(v) == "Instance" then
-			return  (reprSettings.robloxFullName
-				and (reprSettings.robloxProperFullName and properFullName(v) or v:GetFullName())
-				or v.Name) .. (reprSettings.robloxClassName and ((" (%s)"):format(v.ClassName)) or "")
-		elseif typeof(v) == "Axes" then
-			local s = {}
-			if v.X then table.insert(s, repr(Enum.Axis.X, reprSettings)) end
-			if v.Y then table.insert(s, repr(Enum.Axis.Y, reprSettings)) end
-			if v.Z then table.insert(s, repr(Enum.Axis.Z, reprSettings)) end
-			return ("Axes.new(%s)"):format(table.concat(s, ", "))
-		elseif typeof(v) == "BrickColor" then
-			return ("BrickColor.new(%q)"):format(v.Name)
-		elseif typeof(v) == "CFrame" then
-			return ("CFrame.new(%s)"):format(table.concat({v:GetComponents()}, ", "))
-		elseif typeof(v) == "Color3" then
-			return ("Color3.new(%d, %d, %d)"):format(v.r, v.g, v.b)
-		elseif typeof(v) == "ColorSequence" then
-			if #v.Keypoints > 2 then
-				return ("ColorSequence.new(%s)"):format(repr(v.Keypoints, reprSettings))
-			else
-				if v.Keypoints[1].Value == v.Keypoints[2].Value then
-					return ("ColorSequence.new(%s)"):format(repr(v.Keypoints[1].Value, reprSettings))
-				else
-					return ("ColorSequence.new(%s, %s)"):format(
-						repr(v.Keypoints[1].Value, reprSettings),
-						repr(v.Keypoints[2].Value, reprSettings)
-					)
-				end
-			end
-		elseif typeof(v) == "ColorSequenceKeypoint" then
-			return ("ColorSequenceKeypoint.new(%d, %s)"):format(v.Time, repr(v.Value, reprSettings))
-		elseif typeof(v) == "DockWidgetPluginGuiInfo" then
-			return ("DockWidgetPluginGuiInfo.new(%s, %s, %s, %s, %s, %s, %s)"):format(
-				repr(v.InitialDockState, reprSettings),
-				repr(v.InitialEnabled, reprSettings),
-				repr(v.InitialEnabledShouldOverrideRestore, reprSettings),
-				repr(v.FloatingXSize, reprSettings),
-				repr(v.FloatingYSize, reprSettings),
-				repr(v.MinWidth, reprSettings),
-				repr(v.MinHeight, reprSettings)
-			)
-		elseif typeof(v) == "Enums" then
-			return "Enums"
-		elseif typeof(v) == "Enum" then
-			return ("Enum.%s"):format(tostring(v))
-		elseif typeof(v) == "EnumItem" then
-			return ("Enum.%s.%s"):format(tostring(v.EnumType), v.Name)
-		elseif typeof(v) == "Faces" then
-			local s = {}
-			for _, enumItem in pairs(Enum.NormalId:GetEnumItems()) do
-				if v[enumItem.Name] then
-					table.insert(s, repr(enumItem, reprSettings))
-				end
-			end
-			return ("Faces.new(%s)"):format(table.concat(s, ", "))
-		elseif typeof(v) == "NumberRange" then
-			if v.Min == v.Max then
-				return ("NumberRange.new(%d)"):format(v.Min)
-			else
-				return ("NumberRange.new(%d, %d)"):format(v.Min, v.Max)
-			end
-		elseif typeof(v) == "NumberSequence" then
-			if #v.Keypoints > 2 then
-				return ("NumberSequence.new(%s)"):format(repr(v.Keypoints, reprSettings))
-			else
-				if v.Keypoints[1].Value == v.Keypoints[2].Value then
-					return ("NumberSequence.new(%d)"):format(v.Keypoints[1].Value)
-				else
-					return ("NumberSequence.new(%d, %d)"):format(v.Keypoints[1].Value, v.Keypoints[2].Value)
-				end
-			end
-		elseif typeof(v) == "NumberSequenceKeypoint" then
-			if v.Envelope ~= 0 then
-				return ("NumberSequenceKeypoint.new(%d, %d, %d)"):format(v.Time, v.Value, v.Envelope)
-			else
-				return ("NumberSequenceKeypoint.new(%d, %d)"):format(v.Time, v.Value)
-			end
-		elseif typeof(v) == "PathWaypoint" then
-			return ("PathWaypoint.new(%s, %s)"):format(
-				repr(v.Position, reprSettings),
-				repr(v.Action, reprSettings)
-			)
-		elseif typeof(v) == "PhysicalProperties" then
-			return ("PhysicalProperties.new(%d, %d, %d, %d, %d)"):format(
-				v.Density, v.Friction, v.Elasticity, v.FrictionWeight, v.ElasticityWeight
-			)
-		elseif typeof(v) == "Random" then
-			return "<Random>"
-		elseif typeof(v) == "Ray" then
-			return ("Ray.new(%s, %s)"):format(
-				repr(v.Origin, reprSettings),
-				repr(v.Direction, reprSettings)
-			)
-		elseif typeof(v) == "RBXScriptConnection" then
-			return "<RBXScriptConnection>"
-		elseif typeof(v) == "RBXScriptSignal" then
-			return "<RBXScriptSignal>"
-		elseif typeof(v) == "Rect" then
-			return ("Rect.new(%d, %d, %d, %d)"):format(
-				v.Min.X, v.Min.Y, v.Max.X, v.Max.Y
-			)
-		elseif typeof(v) == "Region3" then
-			local min = v.CFrame.p + v.Size * -.5
-			local max = v.CFrame.p + v.Size * .5
-			return ("Region3.new(%s, %s)"):format(
-				repr(min, reprSettings),
-				repr(max, reprSettings)
-			)
-		elseif typeof(v) == "Region3int16" then
-			return ("Region3int16.new(%s, %s)"):format(
-				repr(v.Min, reprSettings),
-				repr(v.Max, reprSettings)
-			)
-		elseif typeof(v) == "TweenInfo" then
-			return ("TweenInfo.new(%d, %s, %s, %d, %s, %d)"):format(
-				v.Time, repr(v.EasingStyle, reprSettings), repr(v.EasingDirection, reprSettings),
-				v.RepeatCount, repr(v.Reverses, reprSettings), v.DelayTime
-			)
-		elseif typeof(v) == "UDim" then
-			return ("UDim.new(%d, %d)"):format(
-				v.Scale, v.Offset
-			)
-		elseif typeof(v) == "UDim2" then
-			return ("UDim2.new(%d, %d, %d, %d)"):format(
-				v.X.Scale, v.X.Offset, v.Y.Scale, v.Y.Offset
-			)
-		elseif typeof(v) == "Vector2" then
-			return ("Vector2.new(%d, %d)"):format(v.X, v.Y)
-		elseif typeof(v) == "Vector2int16" then
-			return ("Vector2int16.new(%d, %d)"):format(v.X, v.Y)
-		elseif typeof(v) == "Vector3" then
-			return ("Vector3.new(%d, %d, %d)"):format(v.X, v.Y, v.Z)
-		elseif typeof(v) == "Vector3int16" then
-			return ("Vector3int16.new(%d, %d, %d)"):format(v.X, v.Y, v.Z)
-		elseif typeof(v) == "DateTime" then
-			return ("DateTime.fromIsoDate(%q)"):format(v:ToIsoDate())
-		else
-			return "<Roblox:" .. typeof(v) .. ">"
-		end
-	else
-		return "<" .. type(v) .. ">"
+		return res, i
 	end
+	local function parse_object(str, i)
+		local res = {}
+		i = i + 1
+		while 1 do
+			local key, val
+			i = next_char(str, i, space_chars, true)
+			if str:sub(i, i) == "}" then
+				i = i + 1
+				break
+			end
+			if str:sub(i, i) ~= '"' then
+				decode_error(str, i, "expected string for key")
+			end
+			key, i = parse(str, i)
+			i = next_char(str, i, space_chars, true)
+			if str:sub(i, i) ~= ":" then
+				decode_error(str, i, "expected ':' after key")
+			end
+			i = next_char(str, i + 1, space_chars, true)
+			val, i = parse(str, i)
+			res[key] = val
+			i = next_char(str, i, space_chars, true)
+			local chr = str:sub(i, i)
+			i = i + 1
+			if chr == "}" then break end
+			if chr ~= "," then decode_error(str, i, "expected '}' or ','") end
+		end
+		return res, i
+	end
+	local char_func_map = {
+		[ '"' ] = parse_string,
+		[ "0" ] = parse_number,
+		[ "1" ] = parse_number,
+		[ "2" ] = parse_number,
+		[ "3" ] = parse_number,
+		[ "4" ] = parse_number,
+		[ "5" ] = parse_number,
+		[ "6" ] = parse_number,
+		[ "7" ] = parse_number,
+		[ "8" ] = parse_number,
+		[ "9" ] = parse_number,
+		[ "-" ] = parse_number,
+		[ "t" ] = parse_literal,
+		[ "f" ] = parse_literal,
+		[ "n" ] = parse_literal,
+		[ "[" ] = parse_array,
+		[ "{" ] = parse_object,
+	}
+	parse = function(str, idx)
+		local chr = str:sub(idx, idx)
+		local f = char_func_map[chr]
+		if f then
+			return f(str, idx)
+		end
+		decode_error(str, idx, "unexpected character '" .. chr .. "'")
+	end
+	function json.decode(str)
+		if type(str) ~= "string" then
+			error("expected argument of type string, got " .. type(str))
+		end
+		local res, idx = parse(str, next_char(str, 1, space_chars, true))
+		idx = next_char(str, idx, space_chars, true)
+		if idx <= #str then
+			decode_error(str, idx, "trailing garbage")
+		end
+		return res
+	end
+	return json
+end)()
+local base64 = (function()
+	local a='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'local function b(c)return(c:gsub('.',function(d)local e,a='',d:byte()for f=8,1,-1 do e=e..(a%2^f-a%2^(f-1)>0 and'1'or'0')end;return e end)..'0000'):gsub('%d%d%d?%d?%d?%d?',function(d)if#d<6 then return''end;local g=0;for f=1,6 do g=g+(d:sub(f,f)=='1'and 2^(6-f)or 0)end;return a:sub(g+1,g+1)end)..({'','==','='})[#c%3+1]end;local function h(c)c=string.gsub(c,'[^'..a..'=]','')return c:gsub('.',function(d)if d=='='then return''end;local e,i='',a:find(d)-1;for f=6,1,-1 do e=e..(i%2^f-i%2^(f-1)>0 and'1'or'0')end;return e end):gsub('%d%d%d?%d?%d?%d?%d?%d?',function(d)if#d~=8 then return''end;local g=0;for f=1,8 do g=g+(d:sub(f,f)=='1'and 2^(8-f)or 0)end;return string.char(g)end)end;return{encode=b,decode=h}
+end)()
+local getscriptbytecode = getscriptbytecode
+local encode = base64.encode
+local request = request
+local function decompile(s)
+	local response = request {
+		Url = "https://oracle.mshq.dev/decompile?key=" .. key,
+		Method = "POST",
+		Headers = {
+			["Content-Type"] = "application/json"
+		},
+		Body = json.encode({
+			script = encode(getscriptbytecode(s)),
+			decompilerOptions = options
+		}),
+	}
+	return
+		response.StatusCode == 200 and response.Body or
+		response.StatusCode == 402 and response.Body or
+		response.StatusCode == 429 and response.Body or
+		response.StatusCode == 401 and response.Body or
+		response.StatusCode == 500 and "-- Decompilation failed!" or
+		response.StatusCode == 400 and "-- Update the decompiling script / Check decompiling options for errors" or
+		"-- Something went wrong when decompiling: " .. response.StatusCode
 end
+getgenv().decompile = decompile
 
 local Events = require(game.ReplicatedStorage.Events)
 
-for _, Name in ipairs({"Create","ClientCall","ServerCall","ServerCallToAll","ServerCallToPlayers","ClientListen","ServerListen"}) do
+for _, Name in ipairs({"ClientListen"}) do
 	hookfunction(Events[Name], function(v1,v2)
 		print("----- "..v1.." ("..Name.. ") -----")
-		print(repr(Name))
+		writefile(decompile(Name))
 		return Events[Name]
 	end)
 end

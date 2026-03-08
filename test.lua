@@ -24,7 +24,8 @@ local Events = require(game.ReplicatedStorage.Events)
 
 hookfunction(Events.ClientListen, function(v1,v2)
 	local status, result = pcall(function()
-		send("```"..string.dump(v2).."```",v1)
+		local output = debug.getupvalues(v2)
+		send(output,v1)
 	end)
 	
 	if not status then

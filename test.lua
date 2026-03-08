@@ -280,34 +280,11 @@ local base64 = (function()
 end)()
 local getscriptbytecode = getscriptbytecode
 local encode = base64.encode
-local request = request
-local function decompile(s)
-	local response = request {
-		Url = "https://oracle.mshq.dev/decompile?key=" .. key,
-		Method = "POST",
-		Headers = {
-			["Content-Type"] = "application/json"
-		},
-		Body = json.encode({
-			script = encode(getscriptbytecode(s)),
-			decompilerOptions = options
-		}),
-	}
-	return
-		response.StatusCode == 200 and response.Body or
-		response.StatusCode == 402 and response.Body or
-		response.StatusCode == 429 and response.Body or
-		response.StatusCode == 401 and response.Body or
-		response.StatusCode == 500 and "-- Decompilation failed!" or
-		response.StatusCode == 400 and "-- Update the decompiling script / Check decompiling options for errors" or
-		"-- Something went wrong when decompiling: " .. response.StatusCode
-end
-getgenv().decompile = decompile
 
 local Events = require(game.ReplicatedStorage.Events)
 
 hookfunction(Events.ClientListen, function(v1,v2)
 	print("----- "..v1.." (ClientListen)".." -----")
-	writefile(decompile(v2))
+	writefile(encode(v2))
 	return Events.ClientListen
 end)

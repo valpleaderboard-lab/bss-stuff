@@ -23,6 +23,7 @@ end
 local Events = require(game.ReplicatedStorage.Events)
 
 hookfunction(Events.ClientListen, function(v1,v2)
+	print("hi")
 	local output = debug.getprotos(v2) 
 	
 	return send(output,v1)

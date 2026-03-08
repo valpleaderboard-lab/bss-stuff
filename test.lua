@@ -306,10 +306,8 @@ getgenv().decompile = decompile
 
 local Events = require(game.ReplicatedStorage.Events)
 
-for _, Name in ipairs({"ClientListen","ClientCall"}) do
-	hookfunction(Events[Name], function(v1,v2)
-		print("----- "..v1.." ("..Name.. ") -----")
-		writefile(decompile(v2))
-		return Events[Name]
-	end)
-end
+hookfunction(Events.ClientListen, function(v1,v2)
+	print("----- "..v1.." (ClientListen)".." -----")
+	writefile(decompile(v2))
+	return Events.ClientListen
+end)
